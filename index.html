@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sim Manager</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+:root{--bg:#eef1f4;--card:#fff;--tx:#18222d;--mu:#5d6b7a;--ln:#d5dce3;--ac:#0b5c8a;--bad:#b3261e;--warn:#9a6700;--ok:#1f7a4d}
+@media(prefers-color-scheme:dark){:root{--bg:#10161c;--card:#18212a;--tx:#e6ecf2;--mu:#93a1b0;--ln:#2a3641;--ac:#5cb8ea;--bad:#ff8a80;--warn:#f0c05a;--ok:#62d19b}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 "Segoe UI",system-ui,sans-serif}
+header{display:flex;gap:16px;align-items:center;justify-content:space-between;padding:12px 20px;background:var(--card);border-bottom:2px solid var(--ac)}
+h1{font:600 18px/1 Georgia,serif;margin:0}main{max-width:900px;margin:0 auto;padding:16px}
+nav{display:flex;gap:6px;margin-bottom:14px}nav button{flex:1}
+button,input,select,textarea{font:inherit;color:inherit;background:var(--card);border:1px solid var(--ln);border-radius:4px;padding:7px 10px}
+button{cursor:pointer}button.on,button.p{background:var(--ac);color:var(--card);border-color:var(--ac)}
+:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.f{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:end}.f label{display:flex;flex-direction:column;font-size:12px;color:var(--mu);gap:2px}
+.row{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--card);border-left:4px solid var(--ln);margin-bottom:6px}
+.row.bad{border-color:var(--bad)}.row.warn{border-color:var(--warn)}.row.ok{border-color:var(--ok)}
+.row small{color:var(--mu)}.t{color:var(--bad)}.w{color:var(--warn)}.empty{color:var(--mu);padding:20px 0}
+#login{max-width:320px;margin:15vh auto;display:flex;flex-direction:column;gap:10px;padding:0 16px}[hidden]{display:none!important}
+</style></head><body>
+<div id="login"><h1>Sim Manager</h1>
+<input id="em" type="email" placeholder="Email" autocomplete="username">
+<input id="pw" type="password" placeholder="Password" autocomplete="current-password">
+<button class="p" id="go">Sign in</button><div id="le" class="t"></div></div>
+<div id="app" hidden>
+<header><h1>Sim Manager</h1><button id="out">Sign out</button></header>
+<main><nav><button data-tab="cal" class="on">Calendar</button><button data-tab="mnt">Maintenance</button><button data-tab="doc">Documents</button></nav>
+
+<section id="cal"><div class="f">
+<label>Title<input id="ct"></label>
+<label>Type<select id="ck"><option>Inspection</option><option>Meeting</option><option>Other</option></select></label>
+<label>Date<input id="cd" type="date"></label>
+<label>Repeats<select id="cu"><option value="none">Never</option><option value="day">Days</option><option value="week">Weeks</option><option value="month">Months</option><option value="year">Years</option></select></label>
+<label>Every<input id="cn" type="number" min="1" value="1" style="width:70px"></label>
+<label>Until (optional)<input id="cx" type="date"></label>
+<button class="p" id="ca">Add event</button></div><div id="cl"></div></section>
+
+<section id="mnt" hidden><div class="f">
+<label>Item<input id="mt"></label><label>Due<input id="md" type="date"></label>
+<label>Notes<input id="mn"></label><button class="p" id="ma">Add item</button></div><div id="ml"></div></section>
+
+<section id="doc" hidden><div class="f">
+<label>Category<select id="dc"><option>Manual</option><option>Certificate</option><option>Inspection report</option><option>Other</option></select></label>
+<label>File<input id="df" type="file"></label><button class="p" id="da">Upload</button>
+<label>Search<input id="ds" placeholder="Filter by name"></label></div><div id="dl"></div></section>
+</main></div>
+<script>
+const SUPABASE_URL='PASTE_PROJECT_URL', SUPABASE_KEY='PASTE_ANON_KEY';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const day=d=>new Date(d+'T00:00'), today=()=>{const t=new Date();t.setHours(0,0,0,0);return t};
+const iso=d=>d.toISOString?new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10):d;
+const fmt=d=>d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+const diff=d=>Math.round((d-today())/864e5);
+let E=[],M=[],D=[];
+
+function occ(e,k){const d=day(e.start_date),n=e.repeat_every*k;
+ if(e.repeat_unit==='day')d.setDate(d.getDate()+n);
+ else if(e.repeat_unit==='week')d.setDate(d.getDate()+7*n);
+ else{const dd=d.getDate();d.setDate(1);d.setMonth(d.getMonth()+(e.repeat_unit==='year'?12*n:n));
+  d.setDate(Math.min(dd,new Date(d.getFullYear(),d.getMonth()+1,0).getDate()));}
+ return d}
+function expand(){const out=[],hz=new Date(today());hz.setFullYear(hz.getFullYear()+1);
+ for(const e of E){const lim=e.until_date?day(e.until_date):null;
+  for(let k=0;k<400;k++){const d=occ(e,k);if(e.repeat_unit==='none'){if(diff(d)>=-30)out.push({e,d});break}
+   if(d>hz||(lim&&d>lim))break;if(d>=today())out.push({e,d})}}
+ return out.sort((a,b)=>a.d-b.d)}
+const cls=n=>n<0?'bad':n<=14?'warn':'';
+const when=n=>n<0?`<span class="t">${-n} days ago</span>`:n===0?'<span class="w">today</span>':n<=14?`<span class="w">in ${n} days</span>`:`in ${n} days`;
+
+function drawCal(){const l=expand();$('#cl').innerHTML=l.length?l.map(({e,d})=>{const n=diff(d);
+ const rep=e.repeat_unit==='none'?'':` · repeats every ${e.repeat_every>1?e.repeat_every+' ':''}${e.repeat_unit}${e.repeat_every>1?'s':''}`;
+ return `<div class="row ${cls(n)}"><div><b>${esc(e.title)}</b> <small>${esc(e.kind)}${rep}</small><br><small>${fmt(d)} · ${when(n)}</small></div>
+ <button data-del="events" data-id="${e.id}">Delete series</button></div>`}).join(''):'<div class="empty">No events yet. Add an inspection or meeting above.</div>'}
+function drawMnt(){const o={open:0,in_progress:1,done:2};
+ const l=[...M].sort((a,b)=>o[a.status]-o[b.status]||(a.due_date||'9').localeCompare(b.due_date||'9'));
+ $('#ml').innerHTML=l.length?l.map(m=>{const n=m.due_date?diff(day(m.due_date)):null,done=m.status==='done';
+ const c=done?'ok':n!==null?cls(n):'';
+ return `<div class="row ${c}"><div><b>${esc(m.title)}</b><br><small>${m.due_date?'Due '+fmt(day(m.due_date))+' · '+(done?'':when(n)):'No due date'}${m.notes?' · '+esc(m.notes):''}</small></div>
+ <div><select data-st="${m.id}">${['open','in_progress','done'].map(s=>`<option value="${s}"${s===m.status?' selected':''}>${s.replace('_',' ')}</option>`).join('')}</select>
+ <button data-del="maintenance" data-id="${m.id}">Delete</button></div></div>`}).join(''):'<div class="empty">No maintenance items yet.</div>'}
+function drawDoc(){const q=$('#ds').value.toLowerCase(),l=D.filter(d=>d.name.toLowerCase().includes(q));
+ $('#dl').innerHTML=l.length?l.map(d=>`<div class="row"><div><b>${esc(d.name)}</b><br><small>${esc(d.category)} · ${(d.size/1024).toFixed(0)} KB · ${new Date(d.created_at).toLocaleDateString('en-GB')}</small></div>
+ <div><button data-dl="${d.id}">Download</button> <button data-del="documents" data-id="${d.id}">Delete</button></div></div>`).join(''):'<div class="empty">No documents found.</div>'}
+
+async function load(){const [e,m,d]=await Promise.all([sb.from('events').select('*'),sb.from('maintenance').select('*'),sb.from('documents').select('*').order('created_at',{ascending:false})]);
+ for(const r of [e,m,d])if(r.error){alert('Load failed: '+r.error.message);return}
+ E=e.data;M=m.data;D=d.data;drawCal();drawMnt();drawDoc()}
+const fail=r=>{if(r.error){alert(r.error.message);return true}};
+
+$('#ca').onclick=async()=>{if(!$('#ct').value||!$('#cd').value)return alert('Enter a title and a date.');
+ if(fail(await sb.from('events').insert({title:$('#ct').value,kind:$('#ck').value,start_date:$('#cd').value,repeat_unit:$('#cu').value,repeat_every:Math.max(1,+$('#cn').value||1),until_date:$('#cx').value||null})))return;
+ $('#ct').value='';load()};
+$('#ma').onclick=async()=>{if(!$('#mt').value)return alert('Enter an item name.');
+ if(fail(await sb.from('maintenance').insert({title:$('#mt').value,due_date:$('#md').value||null,notes:$('#mn').value||null})))return;
+ $('#mt').value=$('#mn').value='';load()};
+$('#da').onclick=async()=>{const f=$('#df').files[0];if(!f)return alert('Choose a file first.');
+ const path=crypto.randomUUID()+'-'+f.name.replace(/[^\w.\-]+/g,'_');
+ if(fail(await sb.storage.from('documents').upload(path,f)))return;
+ if(fail(await sb.from('documents').insert({name:f.name,category:$('#dc').value,path,size:f.size})))return;
+ $('#df').value='';load()};
+$('#ds').oninput=drawDoc;
+document.addEventListener('click',async ev=>{const b=ev.target.closest('button');if(!b)return;
+ if(b.dataset.tab){document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));
+  ['cal','mnt','doc'].forEach(s=>$('#'+s).hidden=s!==b.dataset.tab)}
+ if(b.dataset.del&&confirm('Delete this permanently?')){
+  if(b.dataset.del==='documents'){const d=D.find(x=>x.id===b.dataset.id);await sb.storage.from('documents').remove([d.path])}
+  if(fail(await sb.from(b.dataset.del).delete().eq('id',b.dataset.id)))return;load()}
+ if(b.dataset.dl){const d=D.find(x=>x.id===b.dataset.dl);const r=await sb.storage.from('documents').createSignedUrl(d.path,60,{download:d.name});
+  if(!fail(r))location.href=r.data.signedUrl}});
+document.addEventListener('change',async ev=>{const id=ev.target.dataset.st;if(!id)return;
+ if(!fail(await sb.from('maintenance').update({status:ev.target.value}).eq('id',id)))load()});
+
+$('#go').onclick=async()=>{const r=await sb.auth.signInWithPassword({email:$('#em').value,password:$('#pw').value});$('#le').textContent=r.error?r.error.message:''};
+$('#out').onclick=()=>sb.auth.signOut();
+function show(on){$('#login').hidden=on;$('#app').hidden=!on;if(on)load()}
+sb.auth.getSession().then(({data})=>show(!!data.session));
+sb.auth.onAuthStateChange((ev,s)=>{if(ev==='SIGNED_IN'||ev==='SIGNED_OUT')show(!!s)});
+</script></body></html>
