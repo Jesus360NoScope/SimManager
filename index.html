@@ -46,7 +46,7 @@ button{cursor:pointer}button.on,button.p{background:var(--ac);color:var(--card);
 <label>Search<input id="ds" placeholder="Filter by name"></label></div><div id="dl"></div></section>
 </main></div>
 <script>
-const SUPABASE_URL='PASTE_PROJECT_URL', SUPABASE_KEY='PASTE_ANON_KEY';
+const SUPABASE_URL='https://osadmpncnktoqpgjdzjc.supabase.co', SUPABASE_KEY='sb_publishable_6Noa2MOxb6NynGCuGhPgEA_HbWDVZNI';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
